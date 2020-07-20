@@ -1,0 +1,315 @@
+<html>
+<head>
+<style>
+
+html, body {
+  padding: 0;
+  margin: 0;
+  background: black;
+  font-size: 16pt;
+  height: 100vh;
+}
+
+input {
+  position: fixed;
+  top: 0;
+  left: 0;
+  border:0.3rem solid black;
+  background: black;
+  color: #0f0;
+  font-family: monospace;
+  font-size: 16pt;
+  width: 100%;
+}
+
+#app {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-gap: 2em;
+  padding-top: 3em;
+  height: 100%;
+}
+
+.links {
+  list-style-type: none;
+}
+
+a {
+  color: #8df;
+}
+a:visited {
+  color: #f8f;
+}
+
+li.http::after {
+  font-size: 70%;
+  font-style: italic;
+  content: "http";
+  background-color: #400;
+  margin: 0.5em;
+  padding: 0.2em;
+}
+
+li.https::after {
+  font-size: 70%;
+  font-style: italic;
+  content: "https";
+  background-color: #040;
+  margin: 0.5em;
+  padding: 0.2em;
+}
+
+li.gopher::after {
+  font-size: 70%;
+  font-style: italic;
+  content: "gopher";
+  background-color: #440;
+  margin: 0.5em;
+  padding: 0.2em;
+}
+
+.page {
+  border: 0.3rem solid black;
+  margin: 0;
+  padding: 0;
+  color: #ffe;
+  background: #333;
+  overflow: scroll;
+  scrollbar-color: green black;
+}
+
+.page p {
+  padding: 1rem 2rem;
+  line-height: 1.5rem;
+}
+
+.page ul {
+  padding: 0 2rem;
+  line-height: 1.5rem;
+}
+
+.page h1 {
+  margin: 0;
+  padding: 2rem;
+  background-color: #ddc;
+  color: black;
+}
+
+.page h2 {
+  margin: 0;
+  padding: 1rem 2rem;
+  background-color: #665;
+}
+
+.page h3 {
+  margin: 0;
+  padding: 1rem 2rem;
+}
+
+#src { display: none; }
+</style>
+<script>
+
+LOCAL_PROXY = "http://localhost:1977/"
+
+replace = function(p,n) {
+  if (p.firstChild) {
+    p.replaceChild(n,p.firstChild);
+  } else {
+    p.appendChild(n);
+  }
+}
+
+swap = function() {
+  let r = document.getElementById("recto");
+  let v = document.getElementById("verso");
+  let e = r.removeChild(r.firstChild);
+  replace(v,e);
+}
+
+load = function(url) {
+  console.log(url);
+  if (!url.startsWith("gemini://")) {
+    window.open(url,"_blank");
+    return;
+  }
+  document.getElementById("url").value = url;
+  let r = document.getElementById("recto");
+  let e = document.createElement("DIV");
+  e.setAttribute("data-source",url);
+  fetch(LOCAL_PROXY+url)
+  .then(response => response.text())
+  .then(text => render(text, e, url))
+  .catch(err => render("# oh no\n\n"+err.message, e, url))
+  replace(r,e);
+}
+
+
+render = function(src, e, url) {
+  let lines = src.match(/[^\r\n]+/g);
+
+  if (!lines) {
+    return;
+  }
+
+  let block;
+
+  for (i=0; i<lines.length; i++) {
+    if (lines[i].match(/^[\s]*$/)) {
+      continue;
+    }
+
+    if (block && block.tagName === "PRE") {
+      if (lines[i].startsWith("```")) {
+        block = null;
+        continue;
+      }
+      block.text += "\n"+lines[i];
+      continue;
+    }
+
+    if (lines[i].startsWith("```")) {
+      block = document.createElement("PRE");
+      e.appendChild(block);
+      continue;
+    }
+
+    if (lines[i].startsWith("* ")) {
+      if (!block || block.tagName != "UL") {
+        block = document.createElement("UL");
+        e.appendChild(block);
+      }
+      let li = document.createElement("LI");
+      let lit = document.createTextNode(lines[i].substring(2));
+      li.appendChild(lit);
+      block.appendChild(li);
+      continue;
+    }
+
+    if (lines[i].startsWith("# ")) {
+      if (block) { block = null; }
+      let h = document.createElement("H1");
+      let ht = document.createTextNode(lines[i].substring(2));
+      h.appendChild(ht);
+      e.appendChild(h);
+      continue;
+    }
+
+    if (lines[i].startsWith("## ")) {
+      if (block) { block = null; }
+      let h = document.createElement("H2");
+      let ht = document.createTextNode(lines[i].substring(2));
+      h.appendChild(ht);
+      e.appendChild(h);
+      continue;
+    }
+
+    if (lines[i].startsWith("### ")) {
+      if (block) { block = null; }
+      let h = document.createElement("H3");
+      let ht = document.createTextNode(lines[i].substring(3));
+      h.appendChild(ht);
+      e.appendChild(h);
+      continue;
+    }
+
+    if (lines[i].startsWith("=> ")) {
+      if (!block || block.tagName != "UL") {
+        block = document.createElement("UL");
+        block.setAttribute("class","links");
+        e.appendChild(block);
+      }
+
+      let li = document.createElement("LI");
+      let a = document.createElement("A");
+      let m = lines[i].match(/^=>[\s]*([\S]+)\s+(\S.*)$/);
+      let rel, text;
+      if (m) {
+        rel = m[1];
+        text = m[2];
+      } else {
+        m = lines[i].match(/=>[\s]*([\S]+)/);
+        if (!m) continue;
+
+        rel = m[1];
+        text = rel;
+      }
+      let at = document.createTextNode(text);
+      a.appendChild(at);
+
+      let ah = new URL(rel, url).toString();
+
+      let pri = ah.indexOf("://");
+      if (pri>=0) {
+        let proto = ah.substring(0,pri)
+        li.setAttribute("class",proto);
+        if (proto=="gemini") {
+          a.addEventListener("click", function() {
+            let e = a.parentNode;
+            while (e) {
+              if (e.id=="recto") {
+                swap();
+                break;
+              }
+              e = e.parentNode;
+            }
+            load(ah);
+          });
+          a.setAttribute("title",ah);
+          a.setAttribute("href", "#"+ah);
+        } else {
+          a.setAttribute("href", ah);
+          a.setAttribute("target", "_blank");
+        }
+      } else {
+        a.setAttribute("href", ah);
+        a.setAttribute("target", "_blank");
+      }
+
+      li.appendChild(a);
+      block.appendChild(li);
+      continue;
+    }
+
+    block = document.createElement("P");
+    e.appendChild(block);
+
+    let pt = document.createTextNode(lines[i]);
+    block.appendChild(pt);
+    continue;
+
+  }
+
+  if (block) {
+    e.appendChild(block);
+  }
+}
+
+init = function() {
+  console.log(window.location.hash);
+  if (window.location.hash && window.location.hash.startsWith("#gemini://")) {
+    load(window.location.hash.substring(1));
+  } else {
+    load("gemini://drawk.cab");
+  }
+  document.getElementById("app").addEventListener("keypress", function(ev) {
+    console.log(ev);
+  })
+  document.getElementById("url").addEventListener("change", function(ev) {
+    if (!ev.target.value.startsWith("gemini://")) {
+      ev.target.value = "gemini://"+ev.target.value;
+    }
+    load(ev.target.value);
+  })
+}
+
+</script>
+<body onload="init()">
+  <input type="text" id="url"></input>
+  <div id="app">
+      <div class="page" id="verso"></div>
+      <div class="page" id="recto"></div>
+  </div>
+</body>
+</html>
