@@ -9,11 +9,15 @@ start_tabs=sys.argv
 
 STYLE = open("text.css","r").read()
 
-NUMBERS = {
-    Gdk.KEY_1:1, Gdk.KEY_2:2, Gdk.KEY_3:3,
-    Gdk.KEY_4:4, Gdk.KEY_5:5, Gdk.KEY_6:6,
-    Gdk.KEY_7:7, Gdk.KEY_8:8, Gdk.KEY_9:9,
-}
+NUMBERS = "123456789abcdefghijklmnopqrstuvwxyz"
+KEYS = [ Gdk.KEY_1, Gdk.KEY_2, Gdk.KEY_3, Gdk.KEY_4, Gdk.KEY_5, Gdk.KEY_6,
+         Gdk.KEY_7, Gdk.KEY_8, Gdk.KEY_9, Gdk.KEY_a, Gdk.KEY_b, Gdk.KEY_c,
+         Gdk.KEY_d, Gdk.KEY_e, Gdk.KEY_f, Gdk.KEY_g, Gdk.KEY_h, Gdk.KEY_i,
+         Gdk.KEY_j, Gdk.KEY_k, Gdk.KEY_l, Gdk.KEY_m, Gdk.KEY_n, Gdk.KEY_o,
+         Gdk.KEY_p, Gdk.KEY_q, Gdk.KEY_r, Gdk.KEY_s, Gdk.KEY_t, Gdk.KEY_u,
+         Gdk.KEY_v, Gdk.KEY_w, Gdk.KEY_x, Gdk.KEY_y, Gdk.KEY_z
+]
+REVKEYS = { k:n for n,k in enumerate(KEYS) }
 
 def finish(rq,s,mime="text/html; charset=utf-8"):
     bs = Gio.MemoryInputStream.new()
@@ -36,7 +40,7 @@ class Gemtext():
 
     def html(self):
         pre = False
-        count = 0
+        count = -1
         bits=[]
         print(self.data)
         for line in self.data.split("\n"):
@@ -60,8 +64,8 @@ class Gemtext():
             if line.startswith("=&gt;"):
                 link = line[5:].split(maxsplit=1)
                 count += 1
-                if count<10:
-                    accesskey = f'accesskey="{count}"'
+                if count<len(NUMBERS):
+                    accesskey = f'accesskey="{NUMBERS[count]}"'
                 else:
                     accesskey = ''
                 bits.append(f'<p><a id="link-{count}" {accesskey} href="{link[0]}">{link[-1]}</a></p>'); continue
@@ -189,27 +193,25 @@ class Browser(Gtk.Window):
 
     def _key_pressed(self, widget, event):
         tab = self.tabs[self.notebook.get_current_page()][0]
-        if event.keyval in NUMBERS:
+        if event.keyval in REVKEYS:
             tab.webview.run_javascript(f"""
-window.location.href = document.getElementById('link-{NUMBERS[event.keyval]}').getAttribute("href");
+window.location.href = document.getElementById('link-{REVKEYS[event.keyval]}').getAttribute("href");
             """)
         #elif event.keyval == Gdk.KEY_t: FIXME broken
         #    self._open_new_tab(tab.url)
         elif event.keyval == Gdk.KEY_BackSpace:
             tab.webview.go_back()
-        elif event.keyval == Gdk.KEY_Left:
+        elif event.keyval == Gdk.KEY_comma:
             tab.webview.go_back()
-        elif event.keyval == Gdk.KEY_Right:
+        elif event.keyval == Gdk.KEY_period:
             tab.webview.go_forward()
-        elif event.keyval == Gdk.KEY_r:
-            tab.webview.reload()
         elif event.keyval == Gdk.KEY_F5:
             tab.webview.reload()
         elif event.keyval == Gdk.KEY_F1:
             tab.webview.run_javascript("window.location.href='http://placekitten.com'")
-        elif event.keyval == Gdk.KEY_x:
+        elif event.keyval == Gdk.KEY_F4:
             self._close_current_tab()
-        elif event.keyval == Gdk.KEY_q:
+        elif event.keyval == Gdk.KEY_Escape:
             Gtk.main_quit()
         else:
             print(f"unhandled key {event.keyval}")
