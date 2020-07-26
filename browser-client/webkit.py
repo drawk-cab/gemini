@@ -48,28 +48,29 @@ class Gemtext():
             if pre:
                 if line.startswith("```"):
                     pre = False;
-                    bits.append("</pre>"); continue
+                    bits.append("</pre>")
                 else:
-                    bits.append(line+"\n"); continue
-            if line.startswith("```"):
-                pre = True; bits.append("<pre>"); continue
-            if line.startswith("*"):
-                bits.append(f"<li>{line[1:]}</li>"); continue
-            if line.startswith("###"):
-                bits.append(f"<h3>{line[3:]}</h3>"); continue
-            if line.startswith("##"):
-                bits.append(f'<h2 class="bb">{line[2:]}</h2>'); continue
-            if line.startswith("#"):
-                bits.append(f'<h1 class="bb">{line[1:]}</h1>'); continue
-            if line.startswith("=&gt;"):
+                    bits.append(line+"\n")
+            elif line.startswith("```"):
+                pre = True; bits.append("<pre>")
+            elif line.startswith("*"):
+                bits.append(f"<li>{line[1:]}</li>")
+            elif line.startswith("###"):
+                bits.append(f"<h3>{line[3:]}</h3>")
+            elif line.startswith("##"):
+                bits.append(f'<h2 class="bb">{line[2:]}</h2>')
+            elif line.startswith("#"):
+                bits.append(f'<h1 class="bb">{line[1:]}</h1>')
+            elif line.startswith("=&gt;"):
                 link = line[5:].split(maxsplit=1)
                 count += 1
                 if count<len(NUMBERS):
                     accesskey = f'accesskey="{NUMBERS[count]}"'
                 else:
                     accesskey = ''
-                bits.append(f'<p><a id="link-{count}" {accesskey} href="{link[0]}">{link[-1]}</a></p>'); continue
-            bits.append(f"<p>{line}</p>"); continue
+                bits.append(f'<p><a id="link-{count}" {accesskey} href="{link[0]}">{link[-1]}</a></p>')
+            else:
+                bits.append(f"<p>{line}</p>")
         return f"""
 <html><style>{STYLE}
 .bb {{ border-bottom-color: {self.get_colour(0)} }}
@@ -215,6 +216,8 @@ window.location.href = document.getElementById('link-{REVKEYS[event.keyval]}').g
             Gtk.main_quit()
         else:
             print(f"unhandled key {event.keyval}")
+            return False
+        return True
 
 
 if __name__ == "__main__":

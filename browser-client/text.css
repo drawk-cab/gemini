@@ -11,9 +11,14 @@ h1 {
   border-bottom: 0.2em solid #fff;
 }
 
-p {
+p, li {
   text-align: justify;
   line-height: 150%;
+}
+
+li {
+  list-style-position: outside;
+  margin-left: 1rem;
 }
 
 pre {
