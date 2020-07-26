@@ -1,0 +1,31 @@
+body {
+  background-color: #222;
+  color: white;
+  padding: 3rem;
+  font-family: Sabon, Goudy, Palatino, serif;
+  font-size: 15pt;
+}
+
+h1 {
+  text-align: center;
+  border-bottom: 0.2em solid #fff;
+}
+
+p {
+  text-align: justify;
+  line-height: 150%;
+}
+
+pre {
+  padding: 1em;
+  line-height: 100%;
+}
+
+a[accesskey]::before {
+  content: attr(accesskey);
+  font-family: monospace;
+  color: #ff0;
+  text-decoration: none;
+  font-weight: bold;
+  margin: 0.5em;
+}

@@ -6,20 +6,29 @@ html, body {
   padding: 0;
   margin: 0;
   background: black;
-  font-size: 16pt;
+  font-size: 12pt;
   height: 100vh;
+  font-family: sans-serif;
 }
 
 input {
+  background: white;
+  font-size: 16pt;
+  width: 100%;
+  height: max-content;
+  padding: 2rem;
+  font-family: sans-serif;
+}
+
+#url {
   position: fixed;
   top: 0;
   left: 0;
-  border:0.3rem solid black;
+  padding: 0.5rem;
+  border: none;
   background: black;
   color: #0f0;
   font-family: monospace;
-  font-size: 16pt;
-  width: 100%;
 }
 
 #app {
@@ -80,30 +89,35 @@ li.gopher::after {
 }
 
 .page p {
-  padding: 1rem 2rem;
+  padding: 1rem 3rem;
   line-height: 1.5rem;
 }
 
+.page blockquote {
+  padding: 0 4rem;
+  border-left: 0.5rem solid #666;
+}
+
 .page ul {
-  padding: 0 2rem;
+  padding: 0 4rem;
   line-height: 1.5rem;
 }
 
 .page h1 {
-  margin: 0;
+  margin: 1rem;
   padding: 2rem;
-  background-color: #ddc;
+  background-color: #887;
   color: black;
 }
 
 .page h2 {
-  margin: 0;
+  margin: 0.5rem 1rem;
   padding: 1rem 2rem;
-  background-color: #665;
+  background-color: #554;
 }
 
 .page h3 {
-  margin: 0;
+  margin: 0 1rem;
   padding: 1rem 2rem;
 }
 
@@ -145,6 +159,17 @@ load = function(url) {
   replace(r,e);
 }
 
+navigate = function(node, url) {
+  let e = node.parentNode;
+  while (e) {
+    if (e.id=="recto") {
+      swap();
+      break;
+    }
+    e = e.parentNode;
+  }
+  load(url);
+}
 
 render = function(src, e, url) {
   let lines = src.match(/[^\r\n]+/g);
@@ -175,7 +200,15 @@ render = function(src, e, url) {
       continue;
     }
 
-    if (lines[i].startsWith("* ")) {
+    if (lines[i].startsWith(">")) {
+      block = document.createElement("BLOCKQUOTE");
+      let bt = document.createTextNode(lines[i].substring(2));
+      block.appendChild(bt);
+      e.appendChild(block);
+      continue;
+    }
+
+    if (lines[i].startsWith("*")) {
       if (!block || block.tagName != "UL") {
         block = document.createElement("UL");
         e.appendChild(block);
@@ -187,25 +220,26 @@ render = function(src, e, url) {
       continue;
     }
 
-    if (lines[i].startsWith("# ")) {
+    if (lines[i]==("?")) {
       if (block) { block = null; }
-      let h = document.createElement("H1");
-      let ht = document.createTextNode(lines[i].substring(2));
-      h.appendChild(ht);
-      e.appendChild(h);
+      let f = document.createElement("FORM");
+      let i = document.createElement("INPUT");
+      f.appendChild(i);
+      f.addEventListener("submit",function(){ 
+        console.log("submitted ",url);
+        let q = url.indexOf("?");
+        let base_url = url;
+        if (q>0) {
+          base_url = url.substring(0,q);
+        }
+        load(base_url+"?"+i.value);
+      });
+      e.appendChild(f);
+      i.focus();
       continue;
     }
 
-    if (lines[i].startsWith("## ")) {
-      if (block) { block = null; }
-      let h = document.createElement("H2");
-      let ht = document.createTextNode(lines[i].substring(2));
-      h.appendChild(ht);
-      e.appendChild(h);
-      continue;
-    }
-
-    if (lines[i].startsWith("### ")) {
+    if (lines[i].startsWith("###")) {
       if (block) { block = null; }
       let h = document.createElement("H3");
       let ht = document.createTextNode(lines[i].substring(3));
@@ -214,7 +248,25 @@ render = function(src, e, url) {
       continue;
     }
 
-    if (lines[i].startsWith("=> ")) {
+    if (lines[i].startsWith("##")) {
+      if (block) { block = null; }
+      let h = document.createElement("H2");
+      let ht = document.createTextNode(lines[i].substring(2));
+      h.appendChild(ht);
+      e.appendChild(h);
+      continue;
+    }
+
+    if (lines[i].startsWith("#")) {
+      if (block) { block = null; }
+      let h = document.createElement("H1");
+      let ht = document.createTextNode(lines[i].substring(2));
+      h.appendChild(ht);
+      e.appendChild(h);
+      continue;
+    }
+
+    if (lines[i].startsWith("=>")) {
       if (!block || block.tagName != "UL") {
         block = document.createElement("UL");
         block.setAttribute("class","links");
@@ -245,17 +297,7 @@ render = function(src, e, url) {
         let proto = ah.substring(0,pri)
         li.setAttribute("class",proto);
         if (proto=="gemini") {
-          a.addEventListener("click", function() {
-            let e = a.parentNode;
-            while (e) {
-              if (e.id=="recto") {
-                swap();
-                break;
-              }
-              e = e.parentNode;
-            }
-            load(ah);
-          });
+          a.addEventListener("click", function() { navigate(a, ah); } );
           a.setAttribute("title",ah);
           a.setAttribute("href", "#"+ah);
         } else {
