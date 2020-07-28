@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 
-import sys, html, hashlib, gemini, urllib.parse, os
+import sys, html, hashlib, gemini, urllib.parse, os, logging
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('WebKit2', '4.0')
 from gi.repository import Gtk, Gdk, WebKit2, Gio, GLib
 
-home_url=os.environ.get("GEMINI_HOME_URL","drawk.cab")
+home_url=os.environ.get("GEMINI_HOME_URL","gemkit-builtin://go")
 start_tabs=sys.argv[1:] or [home_url]
 
 STYLE = open("text.css","r").read()
 
-NUMBERS = "123456789"
+NUMBERS = "1234567890"
 KEYS = [ Gdk.KEY_1, Gdk.KEY_2, Gdk.KEY_3, Gdk.KEY_4, Gdk.KEY_5, Gdk.KEY_6, Gdk.KEY_7, Gdk.KEY_8, Gdk.KEY_9, Gdk.KEY_0 ]
 REVKEYS = { k:n for n,k in enumerate(KEYS) }
 
@@ -21,8 +21,9 @@ def finish(rq,s,mime="text/html; charset=utf-8"):
     rq.finish(bs,len(s),mime)
 
 class Gemtext():
-    def __init__(self, url, data):
+    def __init__(self, url, data, has_input=False):
         self.data = data
+        self.has_input = has_input
         netloc = urllib.parse.urlparse(url).netloc
         self.hash = int(hashlib.sha1(netloc.encode("us-ascii")).hexdigest(), 16)
 
@@ -66,6 +67,8 @@ class Gemtext():
                 bits.append(f'<p><a id="link-{count}" {accesskey} href="{link[0]}">{link[-1]}</a></p>')
             else:
                 bits.append(f"<p>{line}</p>")
+        if self.has_input:
+            bits.append('<input id="input" type="text" autofocus></input>')
         return f"""
 <html><style>{STYLE}
 .bb {{ border-bottom-color: {self.get_colour(0)} }}
@@ -80,11 +83,18 @@ class BrowserTab(Gtk.VBox):
 
         self.url = url
         self.webcontext = WebKit2.WebContext()
-        self.webcontext.register_uri_scheme("gemini",lambda rq, *args: self._handle_schemerq(rq, *args))
-        self.webcontext.register_uri_scheme("http",lambda rq, *args: self._handle_httprq(rq, *args))
+        self.webcontext.register_uri_scheme("gemini",lambda rq, *args: self._handle_gemini_rq(rq, *args))
+        self.webcontext.register_uri_scheme("gemkit-builtin",lambda rq, *args: self._handle_builtin_rq(rq, *args))
+
+        # FIXME these don't do anything, but I can't find an unregister API
+        self.webcontext.register_uri_scheme("http",lambda rq, *args: self._handle_http_rq(rq, *args))
+        self.webcontext.register_uri_scheme("https",lambda rq, *args: self._handle_http_rq(rq, *args))
+
         self.webview = WebKit2.WebView.new_with_context(self.webcontext)
+        self.webview.grab_focus()
         self.first_link = 0
-        self._load_url(url)
+        self.has_input = False
+        self.webview.load_uri(url)
         self.show()
 
         scrolled_window = Gtk.ScrolledWindow()
@@ -92,30 +102,41 @@ class BrowserTab(Gtk.VBox):
         self.pack_start(scrolled_window, True, True, 0)
         scrolled_window.show_all()
 
-    def _handle_schemerq(self, rq, *args):
-        url = rq.get_uri()
-        resp = gemini.get(url)
+    def _handle_builtin_rq(self, rq, *args):
+        url = urllib.parse.urlparse(rq.get_uri())
+        if url.netloc == "go":
+            if url.query:
+               self._handle_redirected_rq(rq, url.query)
+            else:
+                self.has_input = True
+                finish(rq, Gemtext("","# Where next?", True).html())
+        else:
+            finish(rq, Gemtext("", "# Unrecognized builtin").html())
 
+    def _handle_gemini_rq(self, rq, *args):
+        self._handle_redirected_rq(rq, rq.get_uri())
+
+    def _handle_redirected_rq(self, rq, url):
+        resp = gemini.get(url)
+        self.has_input = False
         if resp.status.startswith("2"):
             html = Gemtext(url,resp.decode_body()).html()
             finish(rq,html)
-            return
+        elif resp.status.startswith("5"):
+            finish(rq,Gemtext(url,f"# {resp.status} {resp.meta}\n").html())
+        else:
+            finish(rq,Gemtext(url,f"# {resp.status} {resp.meta}\nNot implemented").html())
 
-        msg = f"# {resp.status} {resp.meta}\n## Not implemented yet, sorry."
-        finish(rq,Gemtext(url,msg).html())
-
-    def _handle_httprq(self, rq, *args):
+    def _handle_http_rq(self, rq, *args):
         url = rq.get_uri()
         msg = f"# HTTP"
         finish(rq,Gemtext(url,msg).html())
 
-    def _load_url(self, url):
-        if url.startswith("gemini://"):
-            self.webview.load_uri(url)
-        elif "://" not in url:
-            self.webview.load_uri("gemini://"+url)
-        else:
-            raise ValueError(url)
+    def _load_url(self,url):
+        if "://" not in url:
+             url = "gemini://"+url
+        logging.warning(f"Opening {url}")
+        self.webview.load_uri(url)
 
     def follow_link(self, n):
         self.webview.run_javascript(f"""
@@ -176,6 +197,7 @@ class Browser(Gtk.Window):
         self.notebook.remove(current_tab[0])
 
     def _open_new_tab(self,url):
+        logging.warning(f"Opening new tab with {url}")
         if "://" not in url:
              url = "gemini://"+url
         current_page = self.notebook.get_current_page()
@@ -202,17 +224,33 @@ class Browser(Gtk.Window):
 
         if event.keyval == Gdk.KEY_Escape:
             Gtk.main_quit()
-        elif event.keyval == Gdk.KEY_q:
-            Gtk.main_quit()
         elif not self.tabs:
-            for url in start_tabs:
-                self._open_new_tab(url)
+            if event.keyval in (Gdk.KEY_BackSpace, Gdk.KEY_comma, Gdk.KEY_less, Gdk.KEY_b):
+                for url in start_tabs:
+                    self._open_new_tab(url)
+                return
+            self._open_new_tab("gemkit-builtin://go")
             return
 
         tab = self.tabs[self.notebook.get_current_page()][0]
 
         def _new_tab_callback(so, result, *user_data):
             self._open_new_tab(tab.webview.run_javascript_finish(result).get_js_value().to_string())
+
+        def _same_tab_callback(so, result, *user_data):
+            tab._load_url(tab.webview.run_javascript_finish(result).get_js_value().to_string())
+
+        if tab.has_input and (shift or not event.state):
+            logging.warning("gak")
+            tab.webview.run_javascript(f"""
+document.getElementById('input').focus()
+""")
+            if event.keyval == Gdk.KEY_Return:
+                tab.webview.run_javascript(f"""
+document.getElementById('input').value
+""", None, _same_tab_callback)
+                return True
+            return False
 
         if event.keyval in REVKEYS:
             if not event.state:
@@ -224,7 +262,9 @@ document.getElementById('link-{REVKEYS[event.keyval]+tab.first_link}').href
             elif alt:
                 self.notebook.set_current_page(REVKEYS[event.keyval])
         elif event.keyval in (Gdk.KEY_t, Gdk.KEY_Insert):
-            self._open_new_tab(tab.url)
+            tab.webview.run_javascript(f"""
+window.location.href
+""", None, _new_tab_callback)
         elif event.keyval in (Gdk.KEY_w, Gdk.KEY_Delete):
             self._close_current_tab()
         elif event.keyval == Gdk.KEY_Tab:
@@ -250,6 +290,10 @@ document.getElementById('link-{REVKEYS[event.keyval]+tab.first_link}').href
             tab.go_help()
         elif event.keyval == Gdk.KEY_space:
             tab.advance_links()
+        elif event.keyval == Gdk.KEY_g:
+            self._open_new_tab("gemkit-builtin://go")
+        elif event.keyval == Gdk.KEY_q:
+            Gtk.main_quit()
         else:
             return False
         return True

@@ -34,3 +34,10 @@ a[accesskey]::before {
   font-weight: bold;
   margin: 0.5em;
 }
+
+input {
+  width: 100%;
+  padding: 1rem;
+  font-size: 15pt;
+}
+
