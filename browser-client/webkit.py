@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
-import sys, html, hashlib, gemini, urllib.parse
+
+import sys, html, hashlib, gemini, urllib.parse, os
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('WebKit2', '4.0')
 from gi.repository import Gtk, Gdk, WebKit2, Gio, GLib
 
-start_tabs=sys.argv
+home_url=os.environ.get("GEMINI_HOME_URL","drawk.cab")
+start_tabs=sys.argv[1:] or [home_url]
 
 STYLE = open("text.css","r").read()
 
-NUMBERS = "123456789abcdefghijklmnopqrstuvwxyz"
-KEYS = [ Gdk.KEY_1, Gdk.KEY_2, Gdk.KEY_3, Gdk.KEY_4, Gdk.KEY_5, Gdk.KEY_6,
-         Gdk.KEY_7, Gdk.KEY_8, Gdk.KEY_9, Gdk.KEY_a, Gdk.KEY_b, Gdk.KEY_c,
-         Gdk.KEY_d, Gdk.KEY_e, Gdk.KEY_f, Gdk.KEY_g, Gdk.KEY_h, Gdk.KEY_i,
-         Gdk.KEY_j, Gdk.KEY_k, Gdk.KEY_l, Gdk.KEY_m, Gdk.KEY_n, Gdk.KEY_o,
-         Gdk.KEY_p, Gdk.KEY_q, Gdk.KEY_r, Gdk.KEY_s, Gdk.KEY_t, Gdk.KEY_u,
-         Gdk.KEY_v, Gdk.KEY_w, Gdk.KEY_x, Gdk.KEY_y, Gdk.KEY_z
-]
+NUMBERS = "123456789"
+KEYS = [ Gdk.KEY_1, Gdk.KEY_2, Gdk.KEY_3, Gdk.KEY_4, Gdk.KEY_5, Gdk.KEY_6, Gdk.KEY_7, Gdk.KEY_8, Gdk.KEY_9, Gdk.KEY_0 ]
 REVKEYS = { k:n for n,k in enumerate(KEYS) }
 
 def finish(rq,s,mime="text/html; charset=utf-8"):
@@ -42,7 +38,6 @@ class Gemtext():
         pre = False
         count = -1
         bits=[]
-        print(self.data)
         for line in self.data.split("\n"):
             line = html.escape(line)
             if pre:
@@ -88,6 +83,7 @@ class BrowserTab(Gtk.VBox):
         self.webcontext.register_uri_scheme("gemini",lambda rq, *args: self._handle_schemerq(rq, *args))
         self.webcontext.register_uri_scheme("http",lambda rq, *args: self._handle_httprq(rq, *args))
         self.webview = WebKit2.WebView.new_with_context(self.webcontext)
+        self.first_link = 0
         self._load_url(url)
         self.show()
 
@@ -121,6 +117,17 @@ class BrowserTab(Gtk.VBox):
         else:
             raise ValueError(url)
 
+    def follow_link(self, n):
+        self.webview.run_javascript(f"""
+window.location.href = document.getElementById('link-{n+self.first_link}').href;
+""")
+
+    def advance_links(self):
+        pass
+
+    def go_help(self):
+        self.webview.run_javascript("window.location.href='http://placekitten.com'")
+
 
 
 
@@ -137,15 +144,10 @@ class Browser(Gtk.Window):
         self.set_size_request(700, 700)
 
         # create a first, empty browser tab
-        for url in start_tabs[1:]:
-          if "://" not in url:
-              url = "gemini://"+url
-          self.tabs.append((self._create_tab(url), Gtk.Label(urllib.parse.urlparse(url).netloc)))
-          self.notebook.append_page(*self.tabs[-1])
-
-        if not self.tabs:
-          self.tabs.append((self._create_tab("drawk.cab"), Gtk.Label("drawk.cab")))
-          self.notebook.append_page(*self.tabs[-1])
+        for url in start_tabs:
+          self._open_new_tab(url)
+          #tabs.append((self._create_tab(url), Gtk.Label(urllib.parse.urlparse(url).netloc)))
+          #self.notebook.append_page(*self.tabs[-1])
 
         self.add(self.notebook)
 
@@ -169,15 +171,16 @@ class Browser(Gtk.Window):
         return tab
 
     def _close_current_tab(self):
-        if self.notebook.get_n_pages() == 1:
-            return
         page = self.notebook.get_current_page()
         current_tab = self.tabs.pop(page)
         self.notebook.remove(current_tab[0])
 
     def _open_new_tab(self,url):
+        if "://" not in url:
+             url = "gemini://"+url
         current_page = self.notebook.get_current_page()
-        page_tuple = (self._create_tab(url), Gtk.Label(url))
+        label = Gtk.Label(urllib.parse.urlparse(url).netloc)
+        page_tuple = (self._create_tab(url), label)
         self.tabs.insert(current_page + 1, page_tuple)
         self.notebook.insert_page(page_tuple[0], page_tuple[1],
             current_page + 1)
@@ -193,29 +196,63 @@ class Browser(Gtk.Window):
         self.tabs[current_page][0].find_entry.grab_focus()
 
     def _key_pressed(self, widget, event):
+        shift = event.state & Gdk.ModifierType.SHIFT_MASK
+        ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
+        alt = event.state & Gdk.ModifierType.MOD1_MASK
+
+        if event.keyval == Gdk.KEY_Escape:
+            Gtk.main_quit()
+        elif event.keyval == Gdk.KEY_q:
+            Gtk.main_quit()
+        elif not self.tabs:
+            for url in start_tabs:
+                self._open_new_tab(url)
+            return
+
         tab = self.tabs[self.notebook.get_current_page()][0]
+
+        def _new_tab_callback(so, result, *user_data):
+            self._open_new_tab(tab.webview.run_javascript_finish(result).get_js_value().to_string())
+
         if event.keyval in REVKEYS:
-            tab.webview.run_javascript(f"""
-window.location.href = document.getElementById('link-{REVKEYS[event.keyval]}').getAttribute("href");
-            """)
-        #elif event.keyval == Gdk.KEY_t: FIXME broken
-        #    self._open_new_tab(tab.url)
+            if not event.state:
+                tab.follow_link(REVKEYS[event.keyval])
+            elif ctrl:
+                tab.webview.run_javascript(f"""
+document.getElementById('link-{REVKEYS[event.keyval]+tab.first_link}').href
+""", None, _new_tab_callback)
+            elif alt:
+                self.notebook.set_current_page(REVKEYS[event.keyval])
+        elif event.keyval == Gdk.KEY_t:
+            self._open_new_tab(tab.url)
+        elif event.keyval == Gdk.KEY_w:
+            self._close_current_tab()
+        elif event.keyval == Gdk.KEY_Insert:
+            self._open_new_tab(tab.url)
+        elif event.keyval == Gdk.KEY_Delete:
+            self._close_current_tab()
+        elif event.keyval == Gdk.KEY_Tab:
+            if ctrl or not event.state:
+                self.notebook.next_page()
+            elif shift:
+                self.notebook.prev_page()
+        elif event.keyval == Gdk.KEY_ISO_Left_Tab:
+            self.notebook.prev_page()
+        elif event.keyval == Gdk.KEY_grave:
+            self.notebook.prev_page()
         elif event.keyval == Gdk.KEY_BackSpace:
             tab.webview.go_back()
-        elif event.keyval == Gdk.KEY_comma:
+        elif event.keyval in (Gdk.KEY_comma, Gdk.KEY_less):
             tab.webview.go_back()
-        elif event.keyval == Gdk.KEY_period:
+        elif event.keyval in (Gdk.KEY_period, Gdk.KEY_greater):
             tab.webview.go_forward()
-        elif event.keyval == Gdk.KEY_F5:
+        elif event.keyval in (Gdk.KEY_F5, Gdk.KEY_r):
             tab.webview.reload()
-        elif event.keyval == Gdk.KEY_F1:
-            tab.webview.run_javascript("window.location.href='http://placekitten.com'")
-        elif event.keyval == Gdk.KEY_F4:
-            self._close_current_tab()
-        elif event.keyval == Gdk.KEY_Escape:
-            Gtk.main_quit()
+        elif event.keyval == (Gdk.KEY_F1, Gdk.KEY_h):
+            tab.go_help()
+        elif event.keyval == Gdk.KEY_space:
+            tab.advance_links()
         else:
-            print(f"unhandled key {event.keyval}")
             return False
         return True
 
