@@ -240,9 +240,9 @@ document.getElementById('link-{REVKEYS[event.keyval]+tab.first_link}').href
             self.notebook.next_page()
         elif alt and event.keyval == Gdk.KEY_Page_Down:
             self.notebook.next_page()
-        elif event.keyval in (Gdk.KEY_BackSpace, Gdk.KEY_comma, Gdk.KEY_less, Gdk.KEY_b, Gdk.KEY_Prior):
+        elif event.keyval in (Gdk.KEY_BackSpace, Gdk.KEY_comma, Gdk.KEY_less, Gdk.KEY_b):
             tab.webview.go_back()
-        elif event.keyval in (Gdk.KEY_period, Gdk.KEY_greater, Gdk.KEY_f, Gdk.KEY_Next):
+        elif event.keyval in (Gdk.KEY_period, Gdk.KEY_greater, Gdk.KEY_f):
             tab.webview.go_forward()
         elif event.keyval in (Gdk.KEY_F5, Gdk.KEY_r):
             tab.webview.reload()
