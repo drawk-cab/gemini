@@ -223,28 +223,26 @@ document.getElementById('link-{REVKEYS[event.keyval]+tab.first_link}').href
 """, None, _new_tab_callback)
             elif alt:
                 self.notebook.set_current_page(REVKEYS[event.keyval])
-        elif event.keyval == Gdk.KEY_t:
+        elif event.keyval in (Gdk.KEY_t, Gdk.KEY_Insert):
             self._open_new_tab(tab.url)
-        elif event.keyval == Gdk.KEY_w:
-            self._close_current_tab()
-        elif event.keyval == Gdk.KEY_Insert:
-            self._open_new_tab(tab.url)
-        elif event.keyval == Gdk.KEY_Delete:
+        elif event.keyval in (Gdk.KEY_w, Gdk.KEY_Delete):
             self._close_current_tab()
         elif event.keyval == Gdk.KEY_Tab:
             if ctrl or not event.state:
                 self.notebook.next_page()
             elif shift:
                 self.notebook.prev_page()
-        elif event.keyval == Gdk.KEY_ISO_Left_Tab:
+        elif event.keyval in (Gdk.KEY_ISO_Left_Tab, Gdk.KEY_grave, Gdk.KEY_bracketleft, Gdk.KEY_p):
             self.notebook.prev_page()
-        elif event.keyval == Gdk.KEY_grave:
+        elif alt and event.keyval == Gdk.KEY_Page_Up:
             self.notebook.prev_page()
-        elif event.keyval == Gdk.KEY_BackSpace:
+        elif event.keyval in (Gdk.KEY_bracketright, Gdk.KEY_n):
+            self.notebook.next_page()
+        elif alt and event.keyval == Gdk.KEY_Page_Down:
+            self.notebook.next_page()
+        elif event.keyval in (Gdk.KEY_BackSpace, Gdk.KEY_comma, Gdk.KEY_less, Gdk.KEY_b, Gdk.KEY_Prior):
             tab.webview.go_back()
-        elif event.keyval in (Gdk.KEY_comma, Gdk.KEY_less):
-            tab.webview.go_back()
-        elif event.keyval in (Gdk.KEY_period, Gdk.KEY_greater):
+        elif event.keyval in (Gdk.KEY_period, Gdk.KEY_greater, Gdk.KEY_f, Gdk.KEY_Next):
             tab.webview.go_forward()
         elif event.keyval in (Gdk.KEY_F5, Gdk.KEY_r):
             tab.webview.reload()
