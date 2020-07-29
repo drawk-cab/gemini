@@ -2,14 +2,10 @@
 
 import sys, html, hashlib, gemini, urllib.parse, os, logging
 import gi
+
 gi.require_version('Gtk', '3.0')
 gi.require_version('WebKit2', '4.0')
 from gi.repository import Gtk, Gdk, WebKit2, Gio, GLib
-
-home_url=os.environ.get("GEMINI_HOME_URL","gemkit-builtin://go")
-start_tabs=sys.argv[1:] or [home_url]
-
-STYLE = open("text.css","r").read()
 
 NUMBERS = "1234567890"
 KEYS = [ Gdk.KEY_1, Gdk.KEY_2, Gdk.KEY_3, Gdk.KEY_4, Gdk.KEY_5, Gdk.KEY_6, Gdk.KEY_7, Gdk.KEY_8, Gdk.KEY_9, Gdk.KEY_0 ]
@@ -27,7 +23,7 @@ class Gemtext():
         netloc = urllib.parse.urlparse(url).netloc
         self.hash = int(hashlib.sha1(netloc.encode("us-ascii")).hexdigest(), 16)
 
-    def get_colour(self, n):
+    def _get_colour(self, n):
         b = self.hash
         while n>0:
             n -= 1
@@ -35,11 +31,11 @@ class Gemtext():
         b = int(b)
         return f"hsl({b%360},{(b//360)%100}%,{((b//36000)%50)+50}%)"
 
-    def html(self):
+    def _get_bits(self,data):
         pre = False
         count = -1
-        bits=[]
-        for line in self.data.split("\n"):
+        bits = []
+        for line in data.split("\n"):
             line = html.escape(line)
             if pre:
                 if line.startswith("```"):
@@ -59,29 +55,36 @@ class Gemtext():
                 bits.append(f'<h1 class="bb">{line[1:]}</h1>')
             elif line.startswith("=&gt;"):
                 link = line[5:].split(maxsplit=1)
-                count += 1
-                if count<len(NUMBERS):
-                    accesskey = f'accesskey="{NUMBERS[count]}"'
-                else:
-                    accesskey = ''
-                bits.append(f'<p><a id="link-{count}" {accesskey} href="{link[0]}">{link[-1]}</a></p>')
+                if link:
+                    count += 1
+                    if count<len(NUMBERS):
+                        accesskey = f'accesskey="{NUMBERS[count]}"'
+                    else:
+                        accesskey = ''
+                    bits.append(f'<p><a id="link-{count}" {accesskey} href="{link[0]}">{link[-1]}</a></p>')
             else:
                 bits.append(f"<p>{line}</p>")
-        if self.has_input:
-            bits.append('<input id="input" type="text" autofocus></input>')
+        return bits
+
+    def html(self,css=""):
         return f"""
-<html><style>{STYLE}
-.bb {{ border-bottom-color: {self.get_colour(0)} }}
-a {{ color: {self.get_colour(1)} }}
-pre {{ color: {self.get_colour(0)} }}
-</style><body onload="init()">{"".join(bits)}</body></html>
+<html><style>{css}
+.bb {{ border-bottom-color: {self._get_colour(0)} }}
+a {{ color: {self._get_colour(1)} }}
+pre {{ color: {self._get_colour(0)} }}
+</style><body onload="init()">
+{"".join(self._get_bits(self.data))}
+{'<input id="input" type="text" autofocus tabindex="0"></input>' if self.has_input else ""}
+</body></html>
 """
 
 class BrowserTab(Gtk.VBox):
-    def __init__(self, url, *args, **kwargs):
+    def __init__(self, url, hp, css, *args, **kwargs):
         super(BrowserTab, self).__init__(*args, **kwargs)
 
         self.url = url
+        self.hp = hp
+        self.css = css
         self.webcontext = WebKit2.WebContext()
         self.webcontext.register_uri_scheme("gemini",lambda rq, *args: self._handle_gemini_rq(rq, *args))
         self.webcontext.register_uri_scheme("gemkit-builtin",lambda rq, *args: self._handle_builtin_rq(rq, *args))
@@ -91,7 +94,6 @@ class BrowserTab(Gtk.VBox):
         self.webcontext.register_uri_scheme("https",lambda rq, *args: self._handle_http_rq(rq, *args))
 
         self.webview = WebKit2.WebView.new_with_context(self.webcontext)
-        self.webview.grab_focus()
         self.first_link = 0
         self.has_input = False
         self.webview.load_uri(url)
@@ -106,26 +108,29 @@ class BrowserTab(Gtk.VBox):
         url = urllib.parse.urlparse(rq.get_uri())
         if url.netloc == "go":
             if url.query:
-               self._handle_redirected_rq(rq, url.query)
+               self._load_url(url.query)
             else:
                 self.has_input = True
-                finish(rq, Gemtext("","# Where next?", True).html())
+                finish(rq, Gemtext("","# Where next?", True).html(self.css))
+        elif url.netloc == "hp":
+            finish(rq, Gemtext("",self.hp).html(self.css))
         else:
-            finish(rq, Gemtext("", "# Unrecognized builtin").html())
+            finish(rq, Gemtext("", "# Unrecognized builtin").html(self.css))
 
     def _handle_gemini_rq(self, rq, *args):
-        self._handle_redirected_rq(rq, rq.get_uri())
-
-    def _handle_redirected_rq(self, rq, url):
+        url = rq.get_uri()
         resp = gemini.get(url)
         self.has_input = False
         if resp.status.startswith("2"):
-            html = Gemtext(url,resp.decode_body()).html()
+            html = Gemtext(url,resp.decode_body()).html(self.css)
             finish(rq,html)
         elif resp.status.startswith("5"):
-            finish(rq,Gemtext(url,f"# {resp.status} {resp.meta}\n").html())
+            finish(rq,Gemtext(url,f"# {resp.status} {resp.meta}\n").html(self.css))
+        elif resp.status=="10":
+            self.has_input = True
+            finish(rq,Gemtext(url,f"# {resp.meta}\n",True).html(self.css))
         else:
-            finish(rq,Gemtext(url,f"# {resp.status} {resp.meta}\nNot implemented").html())
+            finish(rq,Gemtext(url,f"# {resp.status} {resp.meta}\nNot implemented").html(self.css))
 
     def _handle_http_rq(self, rq, *args):
         url = rq.get_uri()
@@ -153,26 +158,24 @@ window.location.href = document.getElementById('link-{n+self.first_link}').href;
 
 
 class Browser(Gtk.Window):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, start, hurl, hp, css, *args, **kwargs):
         super(Browser, self).__init__(*args, **kwargs)
 
-        # create notebook and tabs
         self.notebook = Gtk.Notebook()
         self.notebook.set_scrollable(True)
 
-        # basic stuff
+        self.start = start
+        self.hurl = hurl
+        self.hp = hp
+        self.css = css
+
         self.tabs = []
         self.set_size_request(700, 700)
-
-        # create a first, empty browser tab
-        for url in start_tabs:
+        for url in self.start:
           self._open_new_tab(url)
-          #tabs.append((self._create_tab(url), Gtk.Label(urllib.parse.urlparse(url).netloc)))
-          #self.notebook.append_page(*self.tabs[-1])
 
         self.add(self.notebook)
 
-        # connect signals
         self.connect("destroy", Gtk.main_quit)
         self.connect("key-press-event", self._key_pressed)
         self.notebook.connect("switch-page", self._tab_changed)
@@ -188,7 +191,7 @@ class Browser(Gtk.Window):
             self.set_title(title)
 
     def _create_tab(self, url):
-        tab = BrowserTab(url)
+        tab = BrowserTab(url, self.hp, self.css)
         return tab
 
     def _close_current_tab(self):
@@ -196,7 +199,7 @@ class Browser(Gtk.Window):
         current_tab = self.tabs.pop(page)
         self.notebook.remove(current_tab[0])
 
-    def _open_new_tab(self,url):
+    def _open_new_tab(self, url):
         logging.warning(f"Opening new tab with {url}")
         if "://" not in url:
              url = "gemini://"+url
@@ -207,15 +210,6 @@ class Browser(Gtk.Window):
         self.notebook.insert_page(page_tuple[0], page_tuple[1],
             current_page + 1)
         self.notebook.set_current_page(current_page + 1)
-
-    def _focus_url_bar(self):
-        current_page = self.notebook.get_current_page()
-        self.tabs[current_page][0].url_bar.grab_focus()
-
-    def _raise_find_dialog(self):
-        current_page = self.notebook.get_current_page()
-        self.tabs[current_page][0].find_box.show_all()
-        self.tabs[current_page][0].find_entry.grab_focus()
 
     def _key_pressed(self, widget, event):
         shift = event.state & Gdk.ModifierType.SHIFT_MASK
@@ -229,25 +223,28 @@ class Browser(Gtk.Window):
                 for url in start_tabs:
                     self._open_new_tab(url)
                 return
-            self._open_new_tab("gemkit-builtin://go")
+            elif event.keyval == Gdk.KEY_g:
+                self._open_new_tab("gemkit-builtin://go")
+                return
+            self._open_new_tab(self.hurl)
             return
 
         tab = self.tabs[self.notebook.get_current_page()][0]
 
         def _new_tab_callback(so, result, *user_data):
-            self._open_new_tab(tab.webview.run_javascript_finish(result).get_js_value().to_string())
+            url = tab.webview.run_javascript_finish(result).get_js_value().to_string()
+            self._open_new_tab(url)
 
         def _same_tab_callback(so, result, *user_data):
             tab._load_url(tab.webview.run_javascript_finish(result).get_js_value().to_string())
 
         if tab.has_input and (shift or not event.state):
-            logging.warning("gak")
             tab.webview.run_javascript(f"""
-document.getElementById('input').focus()
+document.getElementById('input').focus();
 """)
             if event.keyval == Gdk.KEY_Return:
                 tab.webview.run_javascript(f"""
-document.getElementById('input').value
+(new URL("?"+document.getElementById('input').value, document.location)).href
 """, None, _same_tab_callback)
                 return True
             return False
@@ -287,7 +284,7 @@ window.location.href
         elif event.keyval in (Gdk.KEY_F5, Gdk.KEY_r):
             tab.webview.reload()
         elif event.keyval == (Gdk.KEY_F1, Gdk.KEY_h):
-            tab.go_help()
+            self._open_new_tab(self.hurl)
         elif event.keyval == Gdk.KEY_space:
             tab.advance_links()
         elif event.keyval == Gdk.KEY_g:
@@ -300,8 +297,23 @@ window.location.href
 
 
 if __name__ == "__main__":
-    Gtk.init(sys.argv)
+    hp_file=os.environ.get("GEMKIT_HOME_PAGE",os.path.join(os.environ.get("HOME",""),".gemkit","home.gmi"))
+    try:
+        hp = open(hp_file,"r").read()
+    except Exception as e:
+        logging.warning(f"Couldn't read home page file: {e}")
+        hp = ""
 
-    browser = Browser()
+    hurl = os.environ.get("GEMINI_HOME_URL","gemkit-builtin://hp" if hp else "gemkit-builtin://go")
+    start = sys.argv[1:] or [hurl]
 
-Gtk.main()
+    css_file=os.environ.get("GEMKIT_STYLE_SHEET",os.path.join(os.environ.get("HOME",""),".gemkit","style.css"))
+    try:
+        css = open(css_file,"r").read()
+    except Exception as e:
+        logging.warning(f"Couldn't read stylesheet file: {e}")
+        css = ""
+
+    Gtk.init()
+    browser = Browser(start, hurl, hp, css)
+    Gtk.main()
